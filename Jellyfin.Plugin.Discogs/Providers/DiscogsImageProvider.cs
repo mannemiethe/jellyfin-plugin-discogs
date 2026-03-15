@@ -31,10 +31,13 @@ public class DiscogsImageProvider : IRemoteImageProvider
     public string Name => Plugin.Instance!.Name;
 
     /// <inheritdoc />
-    public bool Supports(BaseItem item) => item.HasProviderId(DiscogsArtistExternalId.ProviderKey) || item.HasProviderId(DiscogsReleaseExternalId.ProviderKey) || item.HasProviderId(DiscogsMasterExternalId.ProviderKey);
+    public bool Supports(BaseItem item)
+        => item.HasProviderId(DiscogsArtistExternalId.ProviderKey)
+            || item.HasProviderId(DiscogsReleaseExternalId.ProviderKey)
+            || item.HasProviderId(DiscogsMasterExternalId.ProviderKey);
 
     /// <inheritdoc />
-    public IEnumerable<ImageType> GetSupportedImages(BaseItem item) => new[] { ImageType.Primary };
+    public IEnumerable<ImageType> GetSupportedImages(BaseItem item) => new[] { ImageType.Primary, ImageType.Backdrop };
 
     /// <inheritdoc />
     public async Task<IEnumerable<RemoteImageInfo>> GetImages(BaseItem item, CancellationToken cancellationToken)
@@ -48,75 +51,56 @@ public class DiscogsImageProvider : IRemoteImageProvider
         if (artistId != null)
         {
             var result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
-            if (result?["images"] != null)
-            {
-                foreach (var image in result["images"]!.AsArray())
-                {
-                    if (image!["uri"]!.ToString().Length > 0)
-                    {
-                        images.Add(new RemoteImageInfo
-                        {
-                            Url = image["uri"]!.ToString(),
-                            ProviderName = Name,
-                            Type = ImageType.Primary,
-                            ThumbnailUrl = image["uri150"]!.ToString(),
-                            Width = image["width"]?.Deserialize<int>(),
-                            Height = image["height"]?.Deserialize<int>()
-                        });
-                    }
-                }
-            }
+            images.AddRange(ParseImages(result));
         }
 
         if (releaseId != null)
         {
             var result = await _api.GetRelease(releaseId, cancellationToken).ConfigureAwait(false);
-            if (result?["images"] != null)
-            {
-                foreach (var image in result["images"]!.AsArray())
-                {
-                    if (image!["uri"]!.ToString().Length > 0)
-                    {
-                        images.Add(new RemoteImageInfo
-                        {
-                            Url = image["uri"]!.ToString(),
-                            ProviderName = Name,
-                            Type = ImageType.Primary,
-                            ThumbnailUrl = image["uri150"]!.ToString(),
-                            Width = image["width"]?.Deserialize<int>(),
-                            Height = image["height"]?.Deserialize<int>()
-                        });
-                    }
-                }
-            }
+            images.AddRange(ParseImages(result));
         }
 
         if (masterId != null)
         {
             var result = await _api.GetMaster(masterId, cancellationToken).ConfigureAwait(false);
-            if (result?["images"] != null)
-            {
-                foreach (var image in result["images"]!.AsArray())
-                {
-                    if (image!["uri"]!.ToString().Length > 0)
-                    {
-                        images.Add(new RemoteImageInfo
-                        {
-                            Url = image["uri"]!.ToString(),
-                            ProviderName = Name,
-                            Type = ImageType.Primary,
-                            ThumbnailUrl = image["uri150"]!.ToString(),
-                            Width = image["width"]?.Deserialize<int>(),
-                            Height = image["height"]?.Deserialize<int>()
-                        });
-                    }
-                }
-            }
+            images.AddRange(ParseImages(result));
         }
 
-        return images;
+        return images
+            .Where(i => !string.IsNullOrWhiteSpace(i.Url))
+            .GroupBy(i => i.Url, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
     }
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private IEnumerable<RemoteImageInfo> ParseImages(JsonElement? result)
+    {
+        if (result is not JsonElement json || !json.TryGetProperty("images", out var images))
+        {
+            return Array.Empty<RemoteImageInfo>();
+        }
+
+        return images
+            .AsArray()
+            .Where(image => image is not null && !string.IsNullOrWhiteSpace(image!["uri"]?.ToString()))
+            .Select(image =>
+            {
+                var imageType = string.Equals(image!["type"]?.ToString(), "secondary", StringComparison.OrdinalIgnoreCase)
+                    ? ImageType.Backdrop
+                    : ImageType.Primary;
+
+                return new RemoteImageInfo
+                {
+                    Url = image["uri"]!.ToString(),
+                    ProviderName = Name,
+                    Type = imageType,
+                    ThumbnailUrl = image["uri150"]?.ToString(),
+                    Width = image["width"]?.Deserialize<int>(),
+                    Height = image["height"]?.Deserialize<int>()
+                };
+            });
+    }
 }
