@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Discogs.ExternalIds;
@@ -76,15 +77,15 @@ public class DiscogsImageProvider : IRemoteImageProvider
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
 
-    private IEnumerable<RemoteImageInfo> ParseImages(JsonElement? result)
+    private RemoteImageInfo[] ParseImages(JsonNode? result)
     {
-        if (result is not JsonElement json || !json.TryGetProperty("images", out var images))
+        var imageArray = result?["images"]?.AsArray();
+        if (imageArray is null)
         {
             return Array.Empty<RemoteImageInfo>();
         }
 
-        return images
-            .AsArray()
+        return imageArray
             .Where(image => image is not null && !string.IsNullOrWhiteSpace(image!["uri"]?.ToString()))
             .Select(image =>
             {
@@ -101,6 +102,7 @@ public class DiscogsImageProvider : IRemoteImageProvider
                     Width = image["width"]?.Deserialize<int>(),
                     Height = image["height"]?.Deserialize<int>()
                 };
-            });
+            })
+            .ToArray();
     }
 }
