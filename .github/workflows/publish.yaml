@@ -46,9 +46,12 @@ jobs:
       - name: Package artifacts
         id: pkg
         shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.meta.outputs.version }}"
           OUTDIR="dist"
           mkdir -p "$OUTDIR"
 
@@ -86,12 +89,42 @@ jobs:
             rm -f "Jellyfin.Plugin.Discogs.dll"
             md5sum "$ZIP_NAME" > "discogs_${VERSION}.md5"
             sha256sum "$ZIP_NAME" > "discogs_${VERSION}.sha256"
-            ls -lh
           )
+
+          CHECKSUM="$(cut -d' ' -f1 "$OUTDIR/discogs_${VERSION}.md5")"
+          SOURCE_URL="https://github.com/${REPO}/releases/download/${TAG}/${ZIP_NAME}"
+          MANIFEST_PATH="$OUTDIR/manifest.json"
+
+          cat > "$MANIFEST_PATH" <<EOF
+          [
+            {
+              "guid": "4ce89c27-d3a1-4e4b-8f5f-4bd9191c857e",
+              "name": "Discogs",
+              "description": "Get music metadata from Discogs\n",
+              "overview": "Get music metadata from Discogs",
+              "owner": "jellyfin",
+              "category": "Music",
+              "imageUrl": "https://repo.jellyfin.org/releases/plugin/images/jellyfin-plugin-discogs.png",
+              "versions": [
+                {
+                  "version": "$VERSION",
+                  "changelog": "- Jellyfin 10.11 support (#15) @crobibero",
+                  "targetAbi": "10.11.0.0",
+                  "sourceUrl": "$SOURCE_URL",
+                  "checksum": "$CHECKSUM",
+                  "timestamp": "$TIMESTAMP"
+                }
+              ]
+            }
+          ]
+          EOF
+
+          (cd "$OUTDIR" && ls -lh)
 
           echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
           echo "md5_path=$OUTDIR/discogs_${VERSION}.md5" >> "$GITHUB_OUTPUT"
           echo "sha256_path=$OUTDIR/discogs_${VERSION}.sha256" >> "$GITHUB_OUTPUT"
+          echo "manifest_path=$MANIFEST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload assets to release
         env:
@@ -104,5 +137,6 @@ jobs:
             "${{ steps.pkg.outputs.zip_path }}" \
             "${{ steps.pkg.outputs.md5_path }}" \
             "${{ steps.pkg.outputs.sha256_path }}" \
+            "${{ steps.pkg.outputs.manifest_path }}" \
             --repo "${{ github.repository }}" \
             --clobber
