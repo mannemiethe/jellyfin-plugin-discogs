@@ -7,22 +7,84 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version/tag to publish (e.g. v2.0.2)'
+        description: 'Existing release tag to upload assets to (e.g. v2.0.4)'
         required: true
         type: string
-      is_unstable:
-        description: 'Publish as unstable release'
-        required: false
-        default: false
-        type: boolean
+
+permissions:
+  contents: write
 
 jobs:
-  call:
-    uses: jellyfin/jellyfin-meta-plugins/.github/workflows/publish.yaml@master
-    with:
-      version: ${{ github.event.release.tag_name || inputs.version }}
-      is-unstable: ${{ github.event.release.prerelease || inputs.is_unstable }}
-    secrets:
-      deploy-host: ${{ secrets.REPO_HOST }}
-      deploy-user: ${{ secrets.REPO_USER }}
-      deploy-key: ${{ secrets.REPO_KEY }}
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Resolve tag/version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.release.tag_name || inputs.version }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore Jellyfin.Plugin.Discogs.sln
+          dotnet build Jellyfin.Plugin.Discogs.sln -c Release --no-restore
+
+      - name: Package artifacts
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          OUTDIR="dist"
+          mkdir -p "$OUTDIR"
+
+          DLL_PATH="Jellyfin.Plugin.Discogs/bin/Release/net9.0/Jellyfin.Plugin.Discogs.dll"
+          ZIP_NAME="discogs_${VERSION}.zip"
+          ZIP_PATH="$OUTDIR/$ZIP_NAME"
+
+          if [[ ! -f "$DLL_PATH" ]]; then
+            echo "Expected plugin DLL not found: $DLL_PATH"
+            exit 1
+          fi
+
+          cp "$DLL_PATH" "$OUTDIR/"
+          (
+            cd "$OUTDIR"
+            zip -9 -q "$ZIP_NAME" "Jellyfin.Plugin.Discogs.dll"
+            rm -f "Jellyfin.Plugin.Discogs.dll"
+            md5sum "$ZIP_NAME" > "discogs_${VERSION}.md5"
+            sha256sum "$ZIP_NAME" > "discogs_${VERSION}.sha256"
+            ls -lh
+          )
+
+          echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "md5_path=$OUTDIR/discogs_${VERSION}.md5" >> "$GITHUB_OUTPUT"
+          echo "sha256_path=$OUTDIR/discogs_${VERSION}.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          gh release upload "$TAG" \
+            "${{ steps.pkg.outputs.zip_path }}" \
+            "${{ steps.pkg.outputs.md5_path }}" \
+            "${{ steps.pkg.outputs.sha256_path }}" \
+            --repo "${{ github.repository }}" \
+            --clobber
