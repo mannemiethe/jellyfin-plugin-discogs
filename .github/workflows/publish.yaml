@@ -61,15 +61,6 @@ jobs:
             exit 1
           fi
 
-          cp "$DLL_PATH" "$OUTDIR/"
-          (
-            cd "$OUTDIR"
-            zip -9 -q "$ZIP_NAME" "Jellyfin.Plugin.Discogs.dll"
-            rm -f "Jellyfin.Plugin.Discogs.dll"
-            md5sum "$ZIP_NAME" > "discogs_${VERSION}.md5"
-            sha256sum "$ZIP_NAME" > "discogs_${VERSION}.sha256"
-          )
-
           TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           META_PATH="$OUTDIR/meta.json"
           cat > "$META_PATH" <<EOF
@@ -88,12 +79,19 @@ jobs:
           }
           EOF
 
-          (cd "$OUTDIR" && ls -lh)
+          cp "$DLL_PATH" "$OUTDIR/"
+          (
+            cd "$OUTDIR"
+            zip -9 -q "$ZIP_NAME" "Jellyfin.Plugin.Discogs.dll" "meta.json"
+            rm -f "Jellyfin.Plugin.Discogs.dll"
+            md5sum "$ZIP_NAME" > "discogs_${VERSION}.md5"
+            sha256sum "$ZIP_NAME" > "discogs_${VERSION}.sha256"
+            ls -lh
+          )
 
           echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
           echo "md5_path=$OUTDIR/discogs_${VERSION}.md5" >> "$GITHUB_OUTPUT"
           echo "sha256_path=$OUTDIR/discogs_${VERSION}.sha256" >> "$GITHUB_OUTPUT"
-          echo "meta_path=$META_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload assets to release
         env:
@@ -106,6 +104,5 @@ jobs:
             "${{ steps.pkg.outputs.zip_path }}" \
             "${{ steps.pkg.outputs.md5_path }}" \
             "${{ steps.pkg.outputs.sha256_path }}" \
-            "${{ steps.pkg.outputs.meta_path }}" \
             --repo "${{ github.repository }}" \
             --clobber
