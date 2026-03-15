@@ -5,13 +5,23 @@ on:
     types:
       - released
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version/tag to publish (e.g. v2.0.2)'
+        required: true
+        type: string
+      is_unstable:
+        description: 'Publish as unstable release'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   call:
     uses: jellyfin/jellyfin-meta-plugins/.github/workflows/publish.yaml@master
     with:
-      version: ${{ github.event.release.tag_name }}
-      is-unstable: ${{ github.event.release.prerelease }}
+      version: ${{ github.event.release.tag_name || inputs.version }}
+      is-unstable: ${{ github.event.release.prerelease || inputs.is_unstable }}
     secrets:
       deploy-host: ${{ secrets.REPO_HOST }}
       deploy-user: ${{ secrets.REPO_USER }}
