@@ -1,7 +1,9 @@
 ﻿using System.Collections.Generic;
+using System;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -118,6 +120,9 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
+                    ProductionYear = TryGetProductionYear(result),
+                    CommunityRating = TryGetCommunityRating(result),
+                    Studios = GetStudios(result),
                 },
                 RemoteImages = result["images"]?.AsArray()
                     .Where(image => image!["uri"]!.ToString().Length > 0)
@@ -156,6 +161,9 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
+                    ProductionYear = TryGetProductionYear(result),
+                    CommunityRating = TryGetCommunityRating(result),
+                    Studios = GetStudios(result),
                 },
                 RemoteImages = result["images"]?.AsArray()
                     .Where(image => image!["uri"]!.ToString().Length > 0)
@@ -188,5 +196,39 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         value = value.TrimEnd('*').Trim();
 
         return value;
+    }
+
+    private static int? TryGetProductionYear(JsonNode? result)
+    {
+        var yearText = result?["year"]?.ToString();
+        if (int.TryParse(yearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var year) && year > 0)
+        {
+            return year;
+        }
+
+        return null;
+    }
+
+    private static float? TryGetCommunityRating(JsonNode? result)
+    {
+        var averageText = result?["community"]?["rating"]?["average"]?.ToString();
+        if (float.TryParse(averageText, NumberStyles.Float, CultureInfo.InvariantCulture, out var average) && average > 0)
+        {
+            return average;
+        }
+
+        return null;
+    }
+
+    private static string[]? GetStudios(JsonNode? result)
+    {
+        var labels = result?["labels"]?.AsArray()
+            .Select(label => label?["name"]?.ToString())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return labels is { Length: > 0 } ? labels : null;
     }
 }
