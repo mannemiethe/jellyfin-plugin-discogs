@@ -188,7 +188,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
             }
 
             var variations = candidateArtist["namevariations"]?.AsArray();
-            if (variations is not null && variations.Any(variation => string.Equals(NormalizeArtistNameKey(variation?.ToString()), requestedKey, StringComparison.Ordinal)))
+            if (variations is not null && variations.Any(variation => string.Equals(NormalizeArtistNameKey(variation?.ToString()), requestedKey, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation("Discogs artist fallback variation match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
                 return candidateArtist;
