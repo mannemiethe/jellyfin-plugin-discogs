@@ -2,13 +2,15 @@ name: '📦 Auto Build & Release'
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v2.0.6)'
-        required: true
+        description: 'Release tag (optional; if empty, auto-generated)'
+        required: false
         type: string
       target:
         description: 'Target branch/commit for the release tag when creating it'
@@ -40,14 +42,14 @@ jobs:
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            TAG="${GITHUB_REF_NAME}"
+            TAG="v0.0.${GITHUB_RUN_NUMBER}"
           else
-            TAG="${{ inputs.tag }}"
-          fi
-
-          if [[ -z "$TAG" ]]; then
-            echo "Tag is required"
-            exit 1
+            INPUT_TAG="${{ inputs.tag }}"
+            if [[ -n "$INPUT_TAG" ]]; then
+              TAG="$INPUT_TAG"
+            else
+              TAG="v0.0.${GITHUB_RUN_NUMBER}"
+            fi
           fi
 
           VERSION="${TAG#v}"
