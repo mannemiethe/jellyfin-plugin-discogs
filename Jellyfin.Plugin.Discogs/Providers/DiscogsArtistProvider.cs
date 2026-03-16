@@ -140,9 +140,15 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         }
 
         var resolvedId = result["id"]?.ToString();
-        var resolvedName = (queriedById && !resolvedViaAlbumHint)
-            ? NormalizeArtistName(result["name"]?.ToString())
-            : NormalizeArtistName(info.Name);
+        var existingName = NormalizeArtistName(info.Name);
+        var resolvedName = !string.IsNullOrWhiteSpace(existingName)
+            ? existingName
+            : NormalizeArtistName(result["name"]?.ToString());
+
+        if (resolvedViaAlbumHint)
+        {
+            _logger.LogInformation("Discogs artist enrichment via album hint - KeepingExistingName={ArtistName}, EnrichedArtistId={ArtistId}", resolvedName, resolvedId);
+        }
 
         _logger.LogInformation(
             "Discogs artist metadata selected - RequestedArtistId={RequestedArtistId}, ResolvedArtistId={ResolvedArtistId}, ResolvedArtistName={ResolvedArtistName}",
