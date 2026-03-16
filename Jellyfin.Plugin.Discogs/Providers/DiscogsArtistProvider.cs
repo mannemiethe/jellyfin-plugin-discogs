@@ -166,18 +166,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 
         var requestedKey = NormalizeArtistNameKey(requestedName);
 
-        var direct = searchResults.FirstOrDefault(node => string.Equals(NormalizeArtistNameKey(node?["title"]?.ToString() ?? string.Empty), requestedKey, StringComparison.Ordinal));
-        if (direct is not null)
-        {
-            var directId = direct["id"]?.ToString();
-            if (!string.IsNullOrWhiteSpace(directId))
-            {
-                _logger.LogInformation("Discogs artist fallback direct match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, directId);
-                return await _api.GetArtist(directId, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        foreach (var candidate in searchResults.Take(5))
+        foreach (var candidate in searchResults.Take(10))
         {
             var candidateId = candidate?["id"]?.ToString();
             if (string.IsNullOrWhiteSpace(candidateId))
