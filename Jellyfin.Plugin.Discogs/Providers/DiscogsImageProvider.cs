@@ -123,6 +123,35 @@ public class DiscogsImageProvider : IRemoteImageProvider
             .Select(g => g.First())
             .ToList();
 
+        if (item is MusicAlbum)
+        {
+            var albumAdjustedImages = new List<RemoteImageInfo>(resultImages.Count);
+            var primarySeen = false;
+
+            foreach (var image in resultImages)
+            {
+                if (image.Type == ImageType.Primary)
+                {
+                    if (!primarySeen)
+                    {
+                        primarySeen = true;
+                        albumAdjustedImages.Add(image);
+                    }
+                    else
+                    {
+                        image.Type = ImageType.Backdrop;
+                        albumAdjustedImages.Add(image);
+                    }
+                }
+                else
+                {
+                    albumAdjustedImages.Add(image);
+                }
+            }
+
+            resultImages = albumAdjustedImages;
+        }
+
         _logger.LogInformation(
             "Discogs image lookup finished for item '{ItemName}' ({ItemType}) - FoundImages={FoundImages}",
             item.Name,
