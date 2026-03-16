@@ -103,6 +103,23 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         JsonNode? result = null;
         var queriedById = false;
 
+        if (!string.IsNullOrWhiteSpace(info.Name))
+        {
+            var nameKey = NormalizeArtistNameKey(info.Name);
+            if (ArtistHintByNormalizedName.TryGetValue(nameKey, out var hintedArtistId)
+                && !string.IsNullOrWhiteSpace(hintedArtistId)
+                && !string.IsNullOrWhiteSpace(artistId)
+                && !string.Equals(artistId, hintedArtistId, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "Discogs artist id mismatch detected - ArtistName={ArtistName}, ExistingArtistId={ExistingArtistId}, HintedArtistId={HintedArtistId}. Using hinted id for refresh.",
+                    info.Name,
+                    artistId,
+                    hintedArtistId);
+                artistId = hintedArtistId;
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(artistId))
         {
             result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
