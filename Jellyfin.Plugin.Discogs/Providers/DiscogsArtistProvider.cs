@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Discogs.ExternalIds;
@@ -17,6 +18,7 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 /// </summary>
 public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, ArtistInfo>
 {
+    private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
     private readonly DiscogsApi _api;
 
     /// <summary>
@@ -52,7 +54,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
                     searchResult.ProviderIds.Add(DiscogsMasterExternalId.ProviderKey, result["master_id"]!.ToString());
                 }
 
-                searchResult.Name = result["title"]!.ToString();
+                searchResult.Name = NormalizeArtistName(result["title"]?.ToString());
                 searchResult.ImageUrl = result!["thumb"]?.ToString() ?? result!["cover_image_url"]?.ToString();
                 if (result["year"] != null)
                 {
@@ -74,7 +76,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 
             return new MetadataResult<MusicArtist>
             {
-                Item = new MusicArtist { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() } }, Name = result!["name"]!.ToString(), Overview = result!["profile_html"]?.ToString() ?? result!["profile_plaintext"]?.ToString() ?? result!["profile"]?.ToString(), },
+                Item = new MusicArtist { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() } }, Name = NormalizeArtistName(result!["name"]?.ToString()), Overview = result!["profile_html"]?.ToString() ?? result!["profile_plaintext"]?.ToString() ?? result!["profile"]?.ToString(), },
                 RemoteImages = result["images"]?.AsArray()
                     .Where(image => image!["uri"]!.ToString().Length > 0)
                     .Select(image =>
@@ -95,4 +97,10 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private static string NormalizeArtistName(string? name)
+    {
+        var value = name ?? string.Empty;
+        return DiscogsDisambiguationSuffixRegex.Replace(value, string.Empty);
+    }
 }

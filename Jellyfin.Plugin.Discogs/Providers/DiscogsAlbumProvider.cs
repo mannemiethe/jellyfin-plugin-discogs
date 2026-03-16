@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Discogs.ExternalIds;
@@ -17,6 +18,7 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 /// </summary>
 public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInfo>
 {
+    private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
     private readonly DiscogsApi _api;
 
     /// <summary>
@@ -101,8 +103,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     ProviderIds = new Dictionary<string, string> { { DiscogsReleaseExternalId.ProviderKey, result!["id"]!.ToString() } },
                     Name = result["title"]!.ToString(),
                     Overview = result["notes_html"]?.ToString() ?? result["notes_plaintext"]?.ToString() ?? result["notes"]?.ToString(),
-                    Artists = result["artists"]?.AsArray().Select(artist => artist!["name"]!.ToString()).ToList(),
-                    AlbumArtists = result["artists"]?.AsArray().Select(artist => artist!["name"]!.ToString()).ToList(),
+                    Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
+                    AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
                 },
                 RemoteImages = result["images"]?.AsArray()
@@ -131,8 +133,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 {
                     ProviderIds = new Dictionary<string, string> { { DiscogsMasterExternalId.ProviderKey, result!["id"]!.ToString() } },
                     Name = result["title"]!.ToString(),
-                    Artists = result["artists"]?.AsArray().Select(artist => artist!["name"]!.ToString()).ToList(),
-                    AlbumArtists = result["artists"]?.AsArray().Select(artist => artist!["name"]!.ToString()).ToList(),
+                    Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
+                    AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
                 },
                 RemoteImages = result["images"]?.AsArray()
@@ -155,4 +157,10 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private static string NormalizeArtistName(string? name)
+    {
+        var value = name ?? string.Empty;
+        return DiscogsDisambiguationSuffixRegex.Replace(value, string.Empty);
+    }
 }
