@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Discogs.ExternalIds;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
@@ -33,9 +34,7 @@ public class DiscogsImageProvider : IRemoteImageProvider
 
     /// <inheritdoc />
     public bool Supports(BaseItem item)
-        => item.HasProviderId(DiscogsArtistExternalId.ProviderKey)
-            || item.HasProviderId(DiscogsReleaseExternalId.ProviderKey)
-            || item.HasProviderId(DiscogsMasterExternalId.ProviderKey);
+        => item is MusicArtist or MusicAlbum;
 
     /// <inheritdoc />
     public IEnumerable<ImageType> GetSupportedImages(BaseItem item) => new[] { ImageType.Primary, ImageType.Backdrop };
