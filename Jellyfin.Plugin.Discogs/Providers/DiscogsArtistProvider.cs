@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Discogs.Providers;
 
@@ -20,14 +21,17 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
     private readonly DiscogsApi _api;
+    private readonly ILogger<DiscogsArtistProvider> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DiscogsArtistProvider"/> class.
     /// </summary>
     /// <param name="api">The Discogs API.</param>
-    public DiscogsArtistProvider(DiscogsApi api)
+    /// <param name="logger">The logger.</param>
+    public DiscogsArtistProvider(DiscogsApi api, ILogger<DiscogsArtistProvider> logger)
     {
         _api = api;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -73,10 +77,18 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         if (artistId != null)
         {
             var result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+            var resolvedArtistId = result!["id"]!.ToString();
+            var resolvedArtistName = NormalizeArtistName(result["name"]?.ToString());
+
+            _logger.LogInformation(
+                "Discogs artist metadata selected - RequestedArtistId={RequestedArtistId}, ResolvedArtistId={ResolvedArtistId}, ResolvedArtistName={ResolvedArtistName}",
+                artistId,
+                resolvedArtistId,
+                resolvedArtistName);
 
             return new MetadataResult<MusicArtist>
             {
-                Item = new MusicArtist { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() } }, Name = NormalizeArtistName(result!["name"]?.ToString()), Overview = result!["profile_html"]?.ToString() ?? result!["profile_plaintext"]?.ToString() ?? result!["profile"]?.ToString(), },
+                Item = new MusicArtist { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, resolvedArtistId } }, Name = resolvedArtistName, Overview = result!["profile_html"]?.ToString() ?? result!["profile_plaintext"]?.ToString() ?? result!["profile"]?.ToString(), },
                 RemoteImages = result["images"]?.AsArray()
                     .Where(image => image!["uri"]!.ToString().Length > 0)
                     .Select(image =>

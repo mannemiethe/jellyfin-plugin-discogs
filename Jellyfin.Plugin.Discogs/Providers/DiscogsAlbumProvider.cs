@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Discogs.Providers;
 
@@ -20,14 +21,17 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
     private readonly DiscogsApi _api;
+    private readonly ILogger<DiscogsAlbumProvider> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DiscogsAlbumProvider"/> class.
     /// </summary>
     /// <param name="api">The Discogs API.</param>
-    public DiscogsAlbumProvider(DiscogsApi api)
+    /// <param name="logger">The logger.</param>
+    public DiscogsAlbumProvider(DiscogsApi api, ILogger<DiscogsAlbumProvider> logger)
     {
         _api = api;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -95,13 +99,21 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         if (releaseId != null)
         {
             var result = await _api.GetRelease(releaseId, cancellationToken).ConfigureAwait(false);
+            var resolvedReleaseId = result!["id"]!.ToString();
+            var resolvedAlbumName = result["title"]!.ToString();
+
+            _logger.LogInformation(
+                "Discogs album metadata selected (release) - RequestedReleaseId={RequestedReleaseId}, ResolvedReleaseId={ResolvedReleaseId}, ResolvedAlbumName={ResolvedAlbumName}",
+                releaseId,
+                resolvedReleaseId,
+                resolvedAlbumName);
 
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
-                    ProviderIds = new Dictionary<string, string> { { DiscogsReleaseExternalId.ProviderKey, result!["id"]!.ToString() } },
-                    Name = result["title"]!.ToString(),
+                    ProviderIds = new Dictionary<string, string> { { DiscogsReleaseExternalId.ProviderKey, resolvedReleaseId } },
+                    Name = resolvedAlbumName,
                     Overview = result["notes_html"]?.ToString() ?? result["notes_plaintext"]?.ToString() ?? result["notes"]?.ToString(),
                     Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
@@ -126,13 +138,21 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         if (masterId != null)
         {
             var result = await _api.GetMaster(masterId, cancellationToken).ConfigureAwait(false);
+            var resolvedMasterId = result!["id"]!.ToString();
+            var resolvedAlbumName = result["title"]!.ToString();
+
+            _logger.LogInformation(
+                "Discogs album metadata selected (master) - RequestedMasterId={RequestedMasterId}, ResolvedMasterId={ResolvedMasterId}, ResolvedAlbumName={ResolvedAlbumName}",
+                masterId,
+                resolvedMasterId,
+                resolvedAlbumName);
 
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
-                    ProviderIds = new Dictionary<string, string> { { DiscogsMasterExternalId.ProviderKey, result!["id"]!.ToString() } },
-                    Name = result["title"]!.ToString(),
+                    ProviderIds = new Dictionary<string, string> { { DiscogsMasterExternalId.ProviderKey, resolvedMasterId } },
+                    Name = resolvedAlbumName,
                     Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
