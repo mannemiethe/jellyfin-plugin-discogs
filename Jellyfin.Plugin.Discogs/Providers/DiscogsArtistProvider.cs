@@ -24,6 +24,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
     private static readonly Regex NonAlphaNumericRegex = new(@"[^\p{L}\p{Nd}]", RegexOptions.Compiled);
+    private static readonly ConcurrentDictionary<string, string> ArtistHintByNormalizedName = new(StringComparer.OrdinalIgnoreCase);
     private readonly DiscogsApi _api;
     private readonly ILogger<DiscogsArtistProvider> _logger;
 
@@ -155,8 +156,30 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
 
+    public static void RegisterArtistHint(string? artistName, string? artistId)
+    {
+        if (string.IsNullOrWhiteSpace(artistName) || string.IsNullOrWhiteSpace(artistId))
+        {
+            return;
+        }
+
+        var key = NormalizeArtistNameKey(artistName);
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            ArtistHintByNormalizedName[key] = artistId;
+        }
+    }
+
     private async Task<JsonNode?> ResolveArtistByNameAsync(string requestedName, CancellationToken cancellationToken)
     {
+        var requestedKey = NormalizeArtistNameKey(requestedName);
+
+        if (ArtistHintByNormalizedName.TryGetValue(requestedKey, out var hintedArtistId) && !string.IsNullOrWhiteSpace(hintedArtistId))
+        {
+            _logger.LogInformation("Discogs artist fallback album hint match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, hintedArtistId);
+            return await _api.GetArtist(hintedArtistId, cancellationToken).ConfigureAwait(false);
+        }
+
         var search = await _api.Search(requestedName, "artist", cancellationToken).ConfigureAwait(false);
         var searchResults = search?["results"]?.AsArray();
         if (searchResults is null || searchResults.Count == 0)
@@ -164,7 +187,6 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
             return null;
         }
 
-        var requestedKey = NormalizeArtistNameKey(requestedName);
         _logger.LogInformation("Discogs artist fallback keys - RequestedName={RequestedName}, RequestedKey={RequestedKey}", requestedName, requestedKey);
 
         foreach (var candidate in searchResults.Take(10))

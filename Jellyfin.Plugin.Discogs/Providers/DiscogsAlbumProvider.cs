@@ -236,6 +236,10 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 continue;
             }
 
+            DiscogsArtistProvider.RegisterArtistHint(resolvedName, artistId);
+            DiscogsArtistProvider.RegisterArtistHint(fallbackName, artistId);
+            DiscogsArtistProvider.RegisterArtistHint(creditName, artistId);
+
             if (names.Any(name => string.Equals(name, resolvedName, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
