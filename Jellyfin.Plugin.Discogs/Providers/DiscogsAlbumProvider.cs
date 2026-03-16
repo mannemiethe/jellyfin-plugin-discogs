@@ -409,12 +409,12 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
     private static PersonInfo[]? GetContributors(JsonNode? result)
     {
         var contributors = new List<PersonInfo>();
-        AddContributors(contributors, result?["artists"]?.AsArray(), "Artist", PersonType.Actor);
-        AddContributors(contributors, result?["extraartists"]?.AsArray(), null, PersonType.Actor);
+        AddContributors(contributors, result?["artists"]?.AsArray(), "Artist");
+        AddContributors(contributors, result?["extraartists"]?.AsArray(), null);
         return contributors.Count > 0 ? contributors.ToArray() : null;
     }
 
-    private static void AddContributors(List<PersonInfo> contributors, JsonArray? source, string? defaultRole, PersonType defaultType)
+    private static void AddContributors(List<PersonInfo> contributors, JsonArray? source, string? defaultRole)
     {
         if (source is null)
         {
@@ -435,11 +435,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 role = defaultRole;
             }
 
-            var type = GuessPersonType(role, defaultType);
-
             if (contributors.Any(existing => string.Equals(existing.Name, name, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(existing.Role ?? string.Empty, role ?? string.Empty, StringComparison.OrdinalIgnoreCase)
-                && existing.Type == type))
+                && string.Equals(existing.Role ?? string.Empty, role ?? string.Empty, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -448,60 +445,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
             {
                 Name = name,
                 Role = role,
-                Type = type,
             });
         }
-    }
-
-    private static PersonType GuessPersonType(string? role, PersonType fallback)
-    {
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return fallback;
-        }
-
-        var lowered = role.ToLowerInvariant();
-        if (lowered.Contains("composer"))
-        {
-            return PersonType.Composer;
-        }
-
-        if (lowered.Contains("lyric"))
-        {
-            return PersonType.Lyricist;
-        }
-
-        if (lowered.Contains("arrang"))
-        {
-            return PersonType.Arranger;
-        }
-
-        if (lowered.Contains("engineer"))
-        {
-            return PersonType.Engineer;
-        }
-
-        if (lowered.Contains("mix"))
-        {
-            return PersonType.Mixer;
-        }
-
-        if (lowered.Contains("remix"))
-        {
-            return PersonType.Remixer;
-        }
-
-        if (lowered.Contains("conductor"))
-        {
-            return PersonType.Conductor;
-        }
-
-        if (lowered.Contains("producer"))
-        {
-            return PersonType.Producer;
-        }
-
-        return fallback;
     }
 
     private static List<(string Url, ImageType Type)>? GetRemoteImages(JsonNode? result)
