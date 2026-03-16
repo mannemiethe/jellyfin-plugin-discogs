@@ -166,9 +166,6 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 
         var requestedKey = NormalizeArtistNameKey(requestedName);
 
-        JsonNode? singleCanonicalMatch = null;
-        var canonicalMatchCount = 0;
-
         foreach (var candidate in searchResults.Take(10))
         {
             var candidateId = candidate?["id"]?.ToString();
@@ -183,31 +180,22 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
                 continue;
             }
 
+            var canonicalKey = NormalizeArtistNameKey(candidateArtist["name"]?.ToString());
+            if (string.Equals(canonicalKey, requestedKey, StringComparison.Ordinal))
+            {
+                _logger.LogInformation("Discogs artist fallback canonical match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
+                return candidateArtist;
+            }
+
             var variations = candidateArtist["namevariations"]?.AsArray();
             if (variations is not null && variations.Any(variation => string.Equals(NormalizeArtistNameKey(variation?.ToString()), requestedKey, StringComparison.Ordinal)))
             {
                 _logger.LogInformation("Discogs artist fallback variation match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
                 return candidateArtist;
             }
-
-            var canonicalKey = NormalizeArtistNameKey(candidateArtist["name"]?.ToString());
-            if (string.Equals(canonicalKey, requestedKey, StringComparison.Ordinal))
-            {
-                canonicalMatchCount++;
-                if (canonicalMatchCount == 1)
-                {
-                    singleCanonicalMatch = candidateArtist;
-                }
-            }
         }
 
-        if (canonicalMatchCount == 1 && singleCanonicalMatch is not null)
-        {
-            _logger.LogInformation("Discogs artist fallback canonical match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, singleCanonicalMatch["id"]?.ToString());
-            return singleCanonicalMatch;
-        }
-
-        _logger.LogWarning("Discogs artist fallback found no safe match - RequestedName={RequestedName}, CanonicalMatches={CanonicalMatches}", requestedName, canonicalMatchCount);
+        _logger.LogWarning("Discogs artist fallback found no safe match - RequestedName={RequestedName}", requestedName);
         return null;
     }
 
