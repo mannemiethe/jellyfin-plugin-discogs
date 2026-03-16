@@ -23,6 +23,7 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInfo>
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
+    private static readonly Regex NonAlphaNumericRegex = new(@"[^\p{L}\p{Nd}]", RegexOptions.Compiled);
     private static readonly char[] ArtistNameSplitSeparators = { ',', '/', '&' };
     private readonly DiscogsApi _api;
     private readonly ILogger<DiscogsAlbumProvider> _logger;
@@ -223,7 +224,51 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
             {
                 try
                 {
-                    _ = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+                    var artistResult = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+                    var canonicalName = NormalizeArtistName(artistResult?["name"]?.ToString());
+                    var canonicalKey = NormalizeArtistNameKey(canonicalName);
+                    var variationNames = artistResult?["namevariations"]?.AsArray()
+                        ?.Select(variation => NormalizeArtistName(variation?.ToString()))
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                        ?? Array.Empty<string>();
+                    var variationKeys = variationNames
+                        .Select(NormalizeArtistNameKey)
+                        .Where(key => !string.IsNullOrWhiteSpace(key))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+                    var sourceNames = new[] { creditName, fallbackName, resolvedName }
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    var sourceKeys = sourceNames
+                        .Select(NormalizeArtistNameKey)
+                        .Where(key => !string.IsNullOrWhiteSpace(key))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+                    var hasCanonicalMatch = sourceKeys.Any(key => string.Equals(key, canonicalKey, StringComparison.OrdinalIgnoreCase));
+                    var hasVariationMatch = sourceKeys.Any(sourceKey => variationKeys.Any(variationKey => string.Equals(sourceKey, variationKey, StringComparison.OrdinalIgnoreCase)));
+
+                    _logger.LogInformation(
+                        "Discogs album artist variant check - ArtistId={ArtistId}, SourceNames={SourceNames}, SourceKeys={SourceKeys}, CanonicalName={CanonicalName}, CanonicalKey={CanonicalKey}, VariationNames={VariationNames}, VariationKeys={VariationKeys}, CanonicalMatch={CanonicalMatch}, VariationMatch={VariationMatch}",
+                        artistId,
+                        string.Join(",", sourceNames),
+                        string.Join(",", sourceKeys),
+                        canonicalName,
+                        canonicalKey,
+                        string.Join(",", variationNames),
+                        string.Join(",", variationKeys),
+                        hasCanonicalMatch,
+                        hasVariationMatch);
+
+                    DiscogsArtistProvider.RegisterArtistHint(canonicalName, artistId);
+                    foreach (var variationName in variationNames)
+                    {
+                        DiscogsArtistProvider.RegisterArtistHint(variationName, artistId);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -293,6 +338,12 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         value = value.TrimEnd('*').Trim();
 
         return value;
+    }
+
+    private static string NormalizeArtistNameKey(string? name)
+    {
+        var normalized = NormalizeArtistName(name).ToUpperInvariant();
+        return NonAlphaNumericRegex.Replace(normalized, string.Empty);
     }
 
     private static int? TryGetProductionYear(JsonNode? result)
