@@ -165,6 +165,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         }
 
         var requestedKey = NormalizeArtistNameKey(requestedName);
+        _logger.LogInformation("Discogs artist fallback keys - RequestedName={RequestedName}, RequestedKey={RequestedKey}", requestedName, requestedKey);
 
         foreach (var candidate in searchResults.Take(10))
         {
@@ -180,15 +181,29 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
                 continue;
             }
 
-            var canonicalKey = NormalizeArtistNameKey(candidateArtist["name"]?.ToString());
+            var candidateName = NormalizeArtistName(candidateArtist["name"]?.ToString());
+            var canonicalKey = NormalizeArtistNameKey(candidateName);
+            var variationKeys = candidateArtist["namevariations"]?.AsArray()
+                ?.Select(variation => NormalizeArtistNameKey(variation?.ToString()))
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+                ?? Array.Empty<string>();
+
+            _logger.LogInformation(
+                "Discogs artist fallback candidate keys - CandidateId={CandidateId}, CandidateName={CandidateName}, CanonicalKey={CanonicalKey}, VariationKeys={VariationKeys}",
+                candidateId,
+                candidateName,
+                canonicalKey,
+                string.Join(",", variationKeys));
+
             if (string.Equals(canonicalKey, requestedKey, StringComparison.Ordinal))
             {
                 _logger.LogInformation("Discogs artist fallback canonical match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
                 return candidateArtist;
             }
 
-            var variations = candidateArtist["namevariations"]?.AsArray();
-            if (variations is not null && variations.Any(variation => string.Equals(NormalizeArtistNameKey(variation?.ToString()), requestedKey, StringComparison.OrdinalIgnoreCase)))
+            if (variationKeys.Any(variationKey => string.Equals(variationKey, requestedKey, StringComparison.OrdinalIgnoreCase)))
             {
                 _logger.LogInformation("Discogs artist fallback variation match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
                 return candidateArtist;
