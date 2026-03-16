@@ -113,6 +113,12 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
     private static string NormalizeArtistName(string? name)
     {
         var value = name ?? string.Empty;
-        return DiscogsDisambiguationSuffixRegex.Replace(value, string.Empty);
+        value = DiscogsDisambiguationSuffixRegex.Replace(value, string.Empty);
+        value = value.Trim();
+
+        // Discogs may append '*' to artist names (name variation marker) which should not become a Jellyfin artist name.
+        value = value.TrimEnd('*').Trim();
+
+        return value;
     }
 }
