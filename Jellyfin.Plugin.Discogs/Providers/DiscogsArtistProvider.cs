@@ -108,24 +108,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         }
         else if (!string.IsNullOrWhiteSpace(info.Name))
         {
-            var search = await _api.Search(info.Name, "artist", cancellationToken).ConfigureAwait(false);
-            var searchResults = search?["results"]?.AsArray();
-            if (searchResults is not null)
-            {
-                var requestedKey = NormalizeArtistNameKey(info.Name);
-                var bestMatch = searchResults.FirstOrDefault(node => string.Equals(NormalizeArtistNameKey(node?["title"]?.ToString() ?? string.Empty), requestedKey, StringComparison.Ordinal))
-                    ?? searchResults.FirstOrDefault();
-
-                var resolvedArtistId = bestMatch?["id"]?.ToString();
-                if (!string.IsNullOrWhiteSpace(resolvedArtistId))
-                {
-                    _logger.LogInformation(
-                        "Discogs artist fallback resolved by name - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}",
-                        info.Name,
-                        resolvedArtistId);
-                    result = await _api.GetArtist(resolvedArtistId, cancellationToken).ConfigureAwait(false);
-                }
-            }
+            result = await ResolveArtistByNameAsync(info.Name, cancellationToken).ConfigureAwait(false);
         }
 
         if (result is null)
@@ -169,6 +152,67 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private async Task<JsonNode?> ResolveArtistByNameAsync(string requestedName, CancellationToken cancellationToken)
+    {
+        var search = await _api.Search(requestedName, "artist", cancellationToken).ConfigureAwait(false);
+        var searchResults = search?["results"]?.AsArray();
+        if (searchResults is null || searchResults.Count == 0)
+        {
+            return null;
+        }
+
+        var requestedKey = NormalizeArtistNameKey(requestedName);
+
+        var direct = searchResults.FirstOrDefault(node => string.Equals(NormalizeArtistNameKey(node?["title"]?.ToString() ?? string.Empty), requestedKey, StringComparison.Ordinal));
+        if (direct is not null)
+        {
+            var directId = direct["id"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(directId))
+            {
+                _logger.LogInformation("Discogs artist fallback direct match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, directId);
+                return await _api.GetArtist(directId, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        foreach (var candidate in searchResults.Take(5))
+        {
+            var candidateId = candidate?["id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(candidateId))
+            {
+                continue;
+            }
+
+            var candidateArtist = await _api.GetArtist(candidateId, cancellationToken).ConfigureAwait(false);
+            if (candidateArtist is null)
+            {
+                continue;
+            }
+
+            var canonicalKey = NormalizeArtistNameKey(candidateArtist["name"]?.ToString());
+            if (string.Equals(canonicalKey, requestedKey, StringComparison.Ordinal))
+            {
+                _logger.LogInformation("Discogs artist fallback canonical match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
+                return candidateArtist;
+            }
+
+            var variations = candidateArtist["namevariations"]?.AsArray();
+            if (variations is not null && variations.Any(variation => string.Equals(NormalizeArtistNameKey(variation?.ToString()), requestedKey, StringComparison.Ordinal)))
+            {
+                _logger.LogInformation("Discogs artist fallback variation match - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, candidateId);
+                return candidateArtist;
+            }
+        }
+
+        var fallbackId = searchResults.FirstOrDefault()?["id"]?.ToString();
+        if (string.IsNullOrWhiteSpace(fallbackId))
+        {
+            return null;
+        }
+
+        _logger.LogInformation("Discogs artist fallback first result - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, fallbackId);
+        return await _api.GetArtist(fallbackId, cancellationToken).ConfigureAwait(false);
+    }
 
     private static string BuildArtistOverview(JsonNode? result)
     {
