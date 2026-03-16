@@ -123,7 +123,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 remoteImages?.Count ?? 0,
                 TryGetPremiereDate(result));
 
-            return new MetadataResult<MusicAlbum>
+            var metadataResult = new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
@@ -137,12 +137,14 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
-                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
                 HasMetadata = true,
             };
+
+            metadataResult.People = GetContributors(result);
+            return metadataResult;
         }
 
         var masterId = info.GetProviderId(DiscogsMasterExternalId.ProviderKey);
@@ -169,7 +171,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 remoteImages?.Count ?? 0,
                 TryGetPremiereDate(result));
 
-            return new MetadataResult<MusicAlbum>
+            var metadataResult = new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
@@ -182,12 +184,14 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
-                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
                 HasMetadata = true,
             };
+
+            metadataResult.People = GetContributors(result);
+            return metadataResult;
         }
 
         return new MetadataResult<MusicAlbum>();
