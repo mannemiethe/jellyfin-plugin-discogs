@@ -136,6 +136,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
+                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
@@ -180,6 +181,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
+                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
@@ -361,6 +363,51 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         }
 
         return providerIds;
+    }
+
+    private static PersonInfo[]? GetContributors(JsonNode? result)
+    {
+        var people = new List<PersonInfo>();
+
+        AddContributors(people, result?["artists"]?.AsArray(), "Artist");
+        AddContributors(people, result?["extraartists"]?.AsArray(), null);
+
+        return people.Count > 0 ? people.ToArray() : null;
+    }
+
+    private static void AddContributors(List<PersonInfo> people, JsonArray? entries, string? defaultRole)
+    {
+        if (entries is null)
+        {
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            var name = NormalizeArtistName(entry?["name"]?.ToString());
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var role = entry?["role"]?.ToString();
+            if (string.IsNullOrWhiteSpace(role))
+            {
+                role = defaultRole;
+            }
+
+            if (people.Any(person => string.Equals(person.Name, name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(person.Role ?? string.Empty, role ?? string.Empty, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            people.Add(new PersonInfo
+            {
+                Name = name,
+                Role = role
+            });
+        }
     }
 
     private static List<(string Url, ImageType Type)>? GetRemoteImages(JsonNode? result)

@@ -1,7 +1,10 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +23,7 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, ArtistInfo>
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
+    private static readonly Regex NonAlphaNumericRegex = new(@"[^\p{L}\p{Nd}]", RegexOptions.Compiled);
     private readonly DiscogsApi _api;
     private readonly ILogger<DiscogsArtistProvider> _logger;
 
@@ -44,81 +48,198 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         if (artistId != null)
         {
             var result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
-            return new[] { new RemoteSearchResult { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() }, }, Name = result!["name"]!.ToString(), ImageUrl = result!["images"]!.AsArray().FirstOrDefault()?["uri150"]?.ToString() } };
-        }
-        else
-        {
-            var response = await _api.Search(searchInfo.Name, "artist", cancellationToken).ConfigureAwait(false);
-            return response!["results"]!.AsArray().Select(result =>
+            var name = NormalizeArtistName(result!["name"]?.ToString());
+            return new[]
             {
-                var searchResult = new RemoteSearchResult();
-                searchResult.ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() }, };
+                new RemoteSearchResult
+                {
+                    ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result["id"]!.ToString() } },
+                    Name = name,
+                    ImageUrl = result["images"]?.AsArray().FirstOrDefault()?["uri150"]?.ToString()
+                }
+            };
+        }
+
+        var response = await _api.Search(searchInfo.Name, "artist", cancellationToken).ConfigureAwait(false);
+        var results = response?["results"]?.AsArray();
+        if (results is null)
+        {
+            return Array.Empty<RemoteSearchResult>();
+        }
+
+        return results
+            .Select(result =>
+            {
+                var searchResult = new RemoteSearchResult
+                {
+                    ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, result!["id"]!.ToString() } },
+                    Name = NormalizeArtistName(result["title"]?.ToString()),
+                    ImageUrl = result["thumb"]?.ToString() ?? result["cover_image_url"]?.ToString()
+                };
+
                 if (result["master_id"] != null && result["master_url"] != null)
                 {
                     searchResult.ProviderIds.Add(DiscogsMasterExternalId.ProviderKey, result["master_id"]!.ToString());
                 }
 
-                searchResult.Name = NormalizeArtistName(result["title"]?.ToString());
-                searchResult.ImageUrl = result!["thumb"]?.ToString() ?? result!["cover_image_url"]?.ToString();
                 if (result["year"] != null)
                 {
                     searchResult.ProductionYear = int.Parse(result["year"]!.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture);
                 }
 
                 return searchResult;
-            });
-        }
+            })
+            .GroupBy(result => NormalizeArtistNameKey(result.Name ?? string.Empty), StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
     }
 
     /// <inheritdoc />
     public async Task<MetadataResult<MusicArtist>> GetMetadata(ArtistInfo info, CancellationToken cancellationToken)
     {
         var artistId = info.GetProviderId(DiscogsArtistExternalId.ProviderKey);
-        if (artistId != null)
+        JsonNode? result = null;
+        var queriedById = false;
+
+        if (!string.IsNullOrWhiteSpace(artistId))
         {
-            var result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
-            var resolvedArtistId = result!["id"]!.ToString();
-            var resolvedArtistName = NormalizeArtistName(result["name"]?.ToString());
-
-            _logger.LogInformation(
-                "Discogs artist metadata selected - RequestedArtistId={RequestedArtistId}, ResolvedArtistId={ResolvedArtistId}, ResolvedArtistName={ResolvedArtistName}",
-                artistId,
-                resolvedArtistId,
-                resolvedArtistName);
-
-            return new MetadataResult<MusicArtist>
+            result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+            queriedById = true;
+        }
+        else if (!string.IsNullOrWhiteSpace(info.Name))
+        {
+            var search = await _api.Search(info.Name, "artist", cancellationToken).ConfigureAwait(false);
+            var searchResults = search?["results"]?.AsArray();
+            if (searchResults is not null)
             {
-                Item = new MusicArtist { ProviderIds = new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, resolvedArtistId } }, Name = resolvedArtistName, Overview = result!["profile_html"]?.ToString() ?? result!["profile_plaintext"]?.ToString() ?? result!["profile"]?.ToString(), },
-                RemoteImages = result["images"]?.AsArray()
-                    .Where(image => image!["uri"]!.ToString().Length > 0)
-                    .Select(image =>
-                    {
-                        var imageType = image!["type"]!.ToString() == "secondary"
-                            ? ImageType.Backdrop
-                            : ImageType.Primary;
-                        return (image!["uri"]!.ToString(), imageType);
-                    })
-                    .ToList(),
-                QueriedById = true,
-                HasMetadata = true,
-            };
+                var requestedKey = NormalizeArtistNameKey(info.Name);
+                var bestMatch = searchResults.FirstOrDefault(node => string.Equals(NormalizeArtistNameKey(node?["title"]?.ToString() ?? string.Empty), requestedKey, StringComparison.Ordinal))
+                    ?? searchResults.FirstOrDefault();
+
+                var resolvedArtistId = bestMatch?["id"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(resolvedArtistId))
+                {
+                    _logger.LogInformation(
+                        "Discogs artist fallback resolved by name - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}",
+                        info.Name,
+                        resolvedArtistId);
+                    result = await _api.GetArtist(resolvedArtistId, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
 
-        return new MetadataResult<MusicArtist>();
+        if (result is null)
+        {
+            return new MetadataResult<MusicArtist>();
+        }
+
+        var resolvedId = result["id"]?.ToString();
+        var resolvedName = NormalizeArtistName(result["name"]?.ToString());
+
+        _logger.LogInformation(
+            "Discogs artist metadata selected - RequestedArtistId={RequestedArtistId}, ResolvedArtistId={ResolvedArtistId}, ResolvedArtistName={ResolvedArtistName}",
+            artistId,
+            resolvedId,
+            resolvedName);
+
+        return new MetadataResult<MusicArtist>
+        {
+            Item = new MusicArtist
+            {
+                ProviderIds = string.IsNullOrWhiteSpace(resolvedId)
+                    ? new Dictionary<string, string>()
+                    : new Dictionary<string, string> { { DiscogsArtistExternalId.ProviderKey, resolvedId } },
+                Name = resolvedName,
+                Overview = BuildArtistOverview(result)
+            },
+            RemoteImages = result["images"]?.AsArray()
+                .Where(image => !string.IsNullOrWhiteSpace(image?["uri"]?.ToString()))
+                .Select(image =>
+                {
+                    var imageType = string.Equals(image?["type"]?.ToString(), "secondary", StringComparison.OrdinalIgnoreCase)
+                        ? ImageType.Backdrop
+                        : ImageType.Primary;
+                    return (image!["uri"]!.ToString(), imageType);
+                })
+                .ToList(),
+            QueriedById = queriedById,
+            HasMetadata = true,
+        };
     }
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private static string BuildArtistOverview(JsonNode? result)
+    {
+        var baseOverview = result?["profile_html"]?.ToString()
+            ?? result?["profile_plaintext"]?.ToString()
+            ?? result?["profile"]?.ToString()
+            ?? string.Empty;
+
+        var lines = new List<string>();
+
+        var nameVariations = result?["namevariations"]?.AsArray()
+            ?.Select(node => NormalizeArtistName(node?.ToString()))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (nameVariations is { Length: > 0 })
+        {
+            lines.Add($"Name variants: {string.Join(", ", nameVariations)}");
+        }
+
+        var groups = result?["groups"]?.AsArray()
+            ?.Select(node => NormalizeArtistName(node?["name"]?.ToString()))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (groups is { Length: > 0 })
+        {
+            lines.Add($"Groups: {string.Join(", ", groups)}");
+        }
+
+        var members = result?["members"]?.AsArray()
+            ?.Select(node => NormalizeArtistName(node?["name"]?.ToString()))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (members is { Length: > 0 })
+        {
+            lines.Add($"Members: {string.Join(", ", members)}");
+        }
+
+        if (lines.Count == 0)
+        {
+            return baseOverview;
+        }
+
+        var extra = string.Join(Environment.NewLine, lines);
+        if (string.IsNullOrWhiteSpace(baseOverview))
+        {
+            return extra;
+        }
+
+        var sb = new StringBuilder(baseOverview.Length + extra.Length + 4);
+        sb.Append(baseOverview.Trim());
+        sb.Append(Environment.NewLine);
+        sb.Append(Environment.NewLine);
+        sb.Append(extra);
+        return sb.ToString();
+    }
 
     private static string NormalizeArtistName(string? name)
     {
         var value = name ?? string.Empty;
         value = DiscogsDisambiguationSuffixRegex.Replace(value, string.Empty);
         value = value.Trim();
-
-        // Discogs may append '*' to artist names (name variation marker) which should not become a Jellyfin artist name.
         value = value.TrimEnd('*').Trim();
-
         return value;
+    }
+
+    private static string NormalizeArtistNameKey(string? name)
+    {
+        var normalized = NormalizeArtistName(name).ToUpperInvariant();
+        return NonAlphaNumericRegex.Replace(normalized, string.Empty);
     }
 }
