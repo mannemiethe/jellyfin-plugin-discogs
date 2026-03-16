@@ -117,7 +117,9 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         }
 
         var resolvedId = result["id"]?.ToString();
-        var resolvedName = NormalizeArtistName(result["name"]?.ToString());
+        var resolvedName = queriedById
+            ? NormalizeArtistName(result["name"]?.ToString())
+            : NormalizeArtistName(info.Name);
 
         _logger.LogInformation(
             "Discogs artist metadata selected - RequestedArtistId={RequestedArtistId}, ResolvedArtistId={ResolvedArtistId}, ResolvedArtistName={ResolvedArtistName}",

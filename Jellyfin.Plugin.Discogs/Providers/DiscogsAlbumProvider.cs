@@ -211,24 +211,23 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         var names = new List<string>();
         foreach (var artist in artists)
         {
+            // Prefer the release credit variation (ANV) to match existing library artist naming.
+            var creditName = NormalizeArtistName(artist?["anv"]?.ToString());
             var fallbackName = NormalizeArtistName(artist?["name"]?.ToString());
             var artistId = artist?["id"]?.ToString();
-            var resolvedName = fallbackName;
+            var resolvedName = !string.IsNullOrWhiteSpace(creditName)
+                ? creditName
+                : fallbackName;
 
             if (!string.IsNullOrWhiteSpace(artistId))
             {
                 try
                 {
-                    var artistResult = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
-                    var canonicalName = NormalizeArtistName(artistResult?["name"]?.ToString());
-                    if (!string.IsNullOrWhiteSpace(canonicalName))
-                    {
-                        resolvedName = canonicalName;
-                    }
+                    _ = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to resolve canonical Discogs artist name for ArtistId={ArtistId}", artistId);
+                    _logger.LogWarning(ex, "Failed to validate Discogs artist id for ArtistId={ArtistId}", artistId);
                 }
             }
 
