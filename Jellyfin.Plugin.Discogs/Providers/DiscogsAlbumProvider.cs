@@ -111,12 +111,21 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 resolvedAlbumName);
 
             var canonicalArtists = await ResolveCanonicalArtistNames(result, cancellationToken).ConfigureAwait(false);
+            var providerIds = BuildAlbumProviderIds(result, DiscogsReleaseExternalId.ProviderKey, resolvedReleaseId);
+            var remoteImages = GetRemoteImages(result);
+
+            _logger.LogInformation(
+                "Discogs release metadata mapped - Album={Album}, Artists={ArtistCount}, RemoteImages={ImageCount}, PremiereDate={PremiereDate}",
+                resolvedAlbumName,
+                canonicalArtists.Length,
+                remoteImages?.Count ?? 0,
+                TryGetPremiereDate(result));
 
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
-                    ProviderIds = new Dictionary<string, string> { { DiscogsReleaseExternalId.ProviderKey, resolvedReleaseId } },
+                    ProviderIds = providerIds,
                     Name = resolvedAlbumName,
                     Overview = result["notes_html"]?.ToString() ?? result["notes_plaintext"]?.ToString() ?? result["notes"]?.ToString(),
                     Artists = canonicalArtists.ToList(),
@@ -125,17 +134,9 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     ProductionYear = TryGetProductionYear(result),
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
+                    PremiereDate = TryGetPremiereDate(result),
                 },
-                RemoteImages = result["images"]?.AsArray()
-                    .Where(image => image!["uri"]!.ToString().Length > 0)
-                    .Select(image =>
-                    {
-                        var imageType = image!["type"]!.ToString() == "secondary"
-                            ? ImageType.Backdrop
-                            : ImageType.Primary;
-                        return (image!["uri"]!.ToString(), imageType);
-                    })
-                    .ToList(),
+                RemoteImages = remoteImages,
                 QueriedById = true,
                 HasMetadata = true,
             };
@@ -155,12 +156,21 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 resolvedAlbumName);
 
             var canonicalArtists = await ResolveCanonicalArtistNames(result, cancellationToken).ConfigureAwait(false);
+            var providerIds = BuildAlbumProviderIds(result, DiscogsMasterExternalId.ProviderKey, resolvedMasterId);
+            var remoteImages = GetRemoteImages(result);
+
+            _logger.LogInformation(
+                "Discogs master metadata mapped - Album={Album}, Artists={ArtistCount}, RemoteImages={ImageCount}, PremiereDate={PremiereDate}",
+                resolvedAlbumName,
+                canonicalArtists.Length,
+                remoteImages?.Count ?? 0,
+                TryGetPremiereDate(result));
 
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
-                    ProviderIds = new Dictionary<string, string> { { DiscogsMasterExternalId.ProviderKey, resolvedMasterId } },
+                    ProviderIds = providerIds,
                     Name = resolvedAlbumName,
                     Artists = canonicalArtists.ToList(),
                     AlbumArtists = canonicalArtists.ToList(),
@@ -168,17 +178,9 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     ProductionYear = TryGetProductionYear(result),
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
+                    PremiereDate = TryGetPremiereDate(result),
                 },
-                RemoteImages = result["images"]?.AsArray()
-                    .Where(image => image!["uri"]!.ToString().Length > 0)
-                    .Select(image =>
-                    {
-                        var imageType = image!["type"]!.ToString() == "secondary"
-                            ? ImageType.Backdrop
-                            : ImageType.Primary;
-                        return (image!["uri"]!.ToString(), imageType);
-                    })
-                    .ToList(),
+                RemoteImages = remoteImages,
                 QueriedById = true,
                 HasMetadata = true,
             };
@@ -195,7 +197,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         var artists = result?["artists"]?.AsArray();
         if (artists is null || artists.Count == 0)
         {
-            return Array.Empty<string>();
+            return GetFallbackArtistNames(result);
         }
 
         var names = new List<string>();
@@ -235,7 +237,39 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
             names.Add(resolvedName);
         }
 
+        if (names.Count == 0)
+        {
+            return GetFallbackArtistNames(result);
+        }
+
         return names.ToArray();
+    }
+
+    private static string[] GetFallbackArtistNames(JsonNode? result)
+    {
+        var artists = result?["artists"]?.AsArray()
+            ?.Select(artist => NormalizeArtistName(artist?["name"]?.ToString()))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (artists is { Length: > 0 })
+        {
+            return artists;
+        }
+
+        var artistsSort = result?["artists_sort"]?.ToString();
+        if (string.IsNullOrWhiteSpace(artistsSort))
+        {
+            return Array.Empty<string>();
+        }
+
+        return artistsSort
+            .Split(new[] { ',', '/', '&' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeArtistName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static string NormalizeArtistName(string? name)
@@ -256,6 +290,28 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         if (int.TryParse(yearText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var year) && year > 0)
         {
             return year;
+        }
+
+        var premiereDate = TryGetPremiereDate(result);
+        return premiereDate?.Year;
+    }
+
+    private static DateTimeOffset? TryGetPremiereDate(JsonNode? result)
+    {
+        var released = result?["released"]?.ToString();
+        if (string.IsNullOrWhiteSpace(released))
+        {
+            return null;
+        }
+
+        if (DateTimeOffset.TryParse(released, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            return parsed;
+        }
+
+        if (DateTime.TryParseExact(released, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateOnly))
+        {
+            return new DateTimeOffset(dateOnly, TimeSpan.Zero);
         }
 
         return null;
@@ -282,5 +338,54 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
             .ToArray();
 
         return labels is { Length: > 0 } ? labels : null;
+    }
+
+    private static Dictionary<string, string> BuildAlbumProviderIds(JsonNode? result, string primaryKey, string primaryValue)
+    {
+        var providerIds = new Dictionary<string, string>
+        {
+            { primaryKey, primaryValue }
+        };
+
+        var artistId = result?["artists"]?.AsArray().FirstOrDefault()?["id"]?.ToString();
+        if (!string.IsNullOrWhiteSpace(artistId))
+        {
+            providerIds[DiscogsArtistExternalId.ProviderKey] = artistId;
+        }
+
+        var masterId = result?["master_id"]?.ToString();
+        if (!string.IsNullOrWhiteSpace(masterId))
+        {
+            providerIds[DiscogsMasterExternalId.ProviderKey] = masterId;
+        }
+
+        return providerIds;
+    }
+
+    private static List<(string Url, ImageType Type)>? GetRemoteImages(JsonNode? result)
+    {
+        var images = result?["images"]?.AsArray()
+            .Where(image => !string.IsNullOrWhiteSpace(image?["uri"]?.ToString()))
+            .Select(image =>
+            {
+                var imageType = string.Equals(image?["type"]?.ToString(), "secondary", StringComparison.OrdinalIgnoreCase)
+                    ? ImageType.Backdrop
+                    : ImageType.Primary;
+                return (image!["uri"]!.ToString(), imageType);
+            })
+            .ToList();
+
+        if (images is { Count: > 0 })
+        {
+            return images;
+        }
+
+        var fallbackUrl = result?["cover_image"]?.ToString() ?? result?["thumb"]?.ToString();
+        if (!string.IsNullOrWhiteSpace(fallbackUrl))
+        {
+            return new List<(string Url, ImageType Type)> { (fallbackUrl, ImageType.Primary) };
+        }
+
+        return null;
     }
 }
