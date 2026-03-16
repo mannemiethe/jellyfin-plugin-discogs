@@ -102,21 +102,25 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         var artistId = info.GetProviderId(DiscogsArtistExternalId.ProviderKey);
         JsonNode? result = null;
         var queriedById = false;
+        var resolvedViaAlbumHint = false;
 
         if (!string.IsNullOrWhiteSpace(info.Name))
         {
             var nameKey = NormalizeArtistNameKey(info.Name);
             if (ArtistHintByNormalizedName.TryGetValue(nameKey, out var hintedArtistId)
-                && !string.IsNullOrWhiteSpace(hintedArtistId)
-                && !string.IsNullOrWhiteSpace(artistId)
-                && !string.Equals(artistId, hintedArtistId, StringComparison.Ordinal))
+                && !string.IsNullOrWhiteSpace(hintedArtistId))
             {
-                _logger.LogWarning(
-                    "Discogs artist id mismatch detected - ArtistName={ArtistName}, ExistingArtistId={ExistingArtistId}, HintedArtistId={HintedArtistId}. Using hinted id for refresh.",
-                    info.Name,
-                    artistId,
-                    hintedArtistId);
+                if (!string.IsNullOrWhiteSpace(artistId) && !string.Equals(artistId, hintedArtistId, StringComparison.Ordinal))
+                {
+                    _logger.LogWarning(
+                        "Discogs artist id mismatch detected - ArtistName={ArtistName}, ExistingArtistId={ExistingArtistId}, HintedArtistId={HintedArtistId}. Using hinted id for refresh.",
+                        info.Name,
+                        artistId,
+                        hintedArtistId);
+                }
+
                 artistId = hintedArtistId;
+                resolvedViaAlbumHint = true;
             }
         }
 
@@ -136,7 +140,7 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
         }
 
         var resolvedId = result["id"]?.ToString();
-        var resolvedName = queriedById
+        var resolvedName = (queriedById && !resolvedViaAlbumHint)
             ? NormalizeArtistName(result["name"]?.ToString())
             : NormalizeArtistName(info.Name);
 
