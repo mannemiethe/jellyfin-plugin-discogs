@@ -175,7 +175,6 @@ jobs:
           else
             gh release create "$TAG" \
               --repo "$REPO" \
-              --target "$TAG" \
               --title "$TAG" \
               --generate-notes
           fi
