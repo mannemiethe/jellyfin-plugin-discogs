@@ -78,6 +78,43 @@ public class DiscogsImageProvider : IRemoteImageProvider
             images.AddRange(ParseImages(result));
         }
 
+        // Fallback for items without Discogs provider IDs (e.g., normalized names before ID assignment).
+        if (images.Count == 0)
+        {
+            if (item is MusicArtist)
+            {
+                var search = await _api.Search(item.Name, "artist", cancellationToken).ConfigureAwait(false);
+                var first = search?["results"]?.AsArray().FirstOrDefault();
+                var resolvedArtistId = first?["id"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(resolvedArtistId))
+                {
+                    _logger.LogInformation(
+                        "Discogs image fallback resolved artist by name - ItemName={ItemName}, ResolvedArtistId={ResolvedArtistId}",
+                        item.Name,
+                        resolvedArtistId);
+
+                    var artist = await _api.GetArtist(resolvedArtistId, cancellationToken).ConfigureAwait(false);
+                    images.AddRange(ParseImages(artist));
+                }
+            }
+            else if (item is MusicAlbum)
+            {
+                var search = await _api.Search(item.Name, "release", cancellationToken).ConfigureAwait(false);
+                var first = search?["results"]?.AsArray().FirstOrDefault();
+                var resolvedReleaseId = first?["id"]?.ToString();
+                if (!string.IsNullOrWhiteSpace(resolvedReleaseId))
+                {
+                    _logger.LogInformation(
+                        "Discogs image fallback resolved album by name - ItemName={ItemName}, ResolvedReleaseId={ResolvedReleaseId}",
+                        item.Name,
+                        resolvedReleaseId);
+
+                    var release = await _api.GetRelease(resolvedReleaseId, cancellationToken).ConfigureAwait(false);
+                    images.AddRange(ParseImages(release));
+                }
+            }
+        }
+
         var resultImages = images
             .Where(i => !string.IsNullOrWhiteSpace(i.Url))
             .GroupBy(i => i.Url, StringComparer.Ordinal)
