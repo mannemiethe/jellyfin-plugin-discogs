@@ -50,6 +50,14 @@ public class DiscogsImageProvider : IRemoteImageProvider
         var releaseId = item.GetProviderId(DiscogsReleaseExternalId.ProviderKey);
         var masterId = item.GetProviderId(DiscogsMasterExternalId.ProviderKey);
 
+        _logger.LogInformation(
+            "Discogs image lookup started for item '{ItemName}' ({ItemType}) - ArtistId={ArtistId}, ReleaseId={ReleaseId}, MasterId={MasterId}",
+            item.Name,
+            item.GetType().Name,
+            artistId,
+            releaseId,
+            masterId);
+
         var images = new List<RemoteImageInfo>();
 
         if (artistId != null)
@@ -75,6 +83,12 @@ public class DiscogsImageProvider : IRemoteImageProvider
             .GroupBy(i => i.Url, StringComparer.Ordinal)
             .Select(g => g.First())
             .ToList();
+
+        _logger.LogInformation(
+            "Discogs image lookup finished for item '{ItemName}' ({ItemType}) - FoundImages={FoundImages}",
+            item.Name,
+            item.GetType().Name,
+            resultImages.Count);
 
         foreach (var image in resultImages)
         {
