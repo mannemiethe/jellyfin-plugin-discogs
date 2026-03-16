@@ -22,6 +22,7 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInfo>
 {
     private static readonly Regex DiscogsDisambiguationSuffixRegex = new(@"\s\(\d+\)$", RegexOptions.Compiled);
+    private static readonly char[] ArtistNameSplitSeparators = { ',', '/', '&' };
     private readonly DiscogsApi _api;
     private readonly ILogger<DiscogsAlbumProvider> _logger;
 
@@ -265,7 +266,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         }
 
         return artistsSort
-            .Split(new[] { ',', '/', '&' }, StringSplitOptions.RemoveEmptyEntries)
+            .Split(ArtistNameSplitSeparators, StringSplitOptions.RemoveEmptyEntries)
             .Select(NormalizeArtistName)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -296,7 +297,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         return premiereDate?.Year;
     }
 
-    private static DateTimeOffset? TryGetPremiereDate(JsonNode? result)
+    private static DateTime? TryGetPremiereDate(JsonNode? result)
     {
         var released = result?["released"]?.ToString();
         if (string.IsNullOrWhiteSpace(released))
@@ -306,12 +307,12 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
 
         if (DateTimeOffset.TryParse(released, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
         {
-            return parsed;
+            return parsed.UtcDateTime;
         }
 
         if (DateTime.TryParseExact(released, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateOnly))
         {
-            return new DateTimeOffset(dateOnly, TimeSpan.Zero);
+            return DateTime.SpecifyKind(dateOnly, DateTimeKind.Utc);
         }
 
         return null;
