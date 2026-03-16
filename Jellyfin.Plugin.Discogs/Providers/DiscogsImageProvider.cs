@@ -60,28 +60,15 @@ public class DiscogsImageProvider : IRemoteImageProvider
 
         var images = new List<RemoteImageInfo>();
 
-        if (artistId != null)
+        if (item is MusicArtist)
         {
-            var result = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
-            images.AddRange(ParseImages(result));
-        }
+            if (artistId != null)
+            {
+                var artistResult = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+                images.AddRange(ParseImages(artistResult));
+            }
 
-        if (releaseId != null)
-        {
-            var result = await _api.GetRelease(releaseId, cancellationToken).ConfigureAwait(false);
-            images.AddRange(ParseImages(result));
-        }
-
-        if (masterId != null)
-        {
-            var result = await _api.GetMaster(masterId, cancellationToken).ConfigureAwait(false);
-            images.AddRange(ParseImages(result));
-        }
-
-        // Fallback for items without Discogs provider IDs (e.g., normalized names before ID assignment).
-        if (images.Count == 0)
-        {
-            if (item is MusicArtist)
+            if (images.Count == 0)
             {
                 var search = await _api.Search(item.Name, "artist", cancellationToken).ConfigureAwait(false);
                 var first = search?["results"]?.AsArray().FirstOrDefault();
@@ -93,11 +80,26 @@ public class DiscogsImageProvider : IRemoteImageProvider
                         item.Name,
                         resolvedArtistId);
 
-                    var artist = await _api.GetArtist(resolvedArtistId, cancellationToken).ConfigureAwait(false);
-                    images.AddRange(ParseImages(artist));
+                    var artistResult = await _api.GetArtist(resolvedArtistId, cancellationToken).ConfigureAwait(false);
+                    images.AddRange(ParseImages(artistResult));
                 }
             }
-            else if (item is MusicAlbum)
+        }
+        else if (item is MusicAlbum)
+        {
+            if (releaseId != null)
+            {
+                var releaseResult = await _api.GetRelease(releaseId, cancellationToken).ConfigureAwait(false);
+                images.AddRange(ParseImages(releaseResult));
+            }
+
+            if (masterId != null)
+            {
+                var masterResult = await _api.GetMaster(masterId, cancellationToken).ConfigureAwait(false);
+                images.AddRange(ParseImages(masterResult));
+            }
+
+            if (images.Count == 0)
             {
                 var search = await _api.Search(item.Name, "release", cancellationToken).ConfigureAwait(false);
                 var first = search?["results"]?.AsArray().FirstOrDefault();
@@ -109,8 +111,8 @@ public class DiscogsImageProvider : IRemoteImageProvider
                         item.Name,
                         resolvedReleaseId);
 
-                    var release = await _api.GetRelease(resolvedReleaseId, cancellationToken).ConfigureAwait(false);
-                    images.AddRange(ParseImages(release));
+                    var releaseResult = await _api.GetRelease(resolvedReleaseId, cancellationToken).ConfigureAwait(false);
+                    images.AddRange(ParseImages(releaseResult));
                 }
             }
         }

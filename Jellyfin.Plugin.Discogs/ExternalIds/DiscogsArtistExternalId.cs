@@ -25,5 +25,5 @@ public class DiscogsArtistExternalId : IExternalId
     public ExternalIdMediaType? Type => ExternalIdMediaType.Artist;
 
     /// <inheritdoc />
-    public bool Supports(IHasProviderIds item) => item is MusicArtist;
+    public bool Supports(IHasProviderIds item) => item is MusicArtist or MusicAlbum;
 }
