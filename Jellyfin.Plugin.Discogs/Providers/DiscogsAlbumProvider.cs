@@ -128,7 +128,7 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 {
                     ProviderIds = providerIds,
                     Name = resolvedAlbumName,
-                    Overview = result["notes_html"]?.ToString() ?? result["notes_plaintext"]?.ToString() ?? result["notes"]?.ToString(),
+                    Overview = BuildAlbumOverview(result),
                     Artists = canonicalArtists.ToList(),
                     AlbumArtists = canonicalArtists.ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
@@ -136,7 +136,6 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
-                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
@@ -181,7 +180,6 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     CommunityRating = TryGetCommunityRating(result),
                     Studios = GetStudios(result),
                     PremiereDate = TryGetPremiereDate(result),
-                    People = GetContributors(result),
                 },
                 RemoteImages = remoteImages,
                 QueriedById = true,
@@ -365,49 +363,44 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
         return providerIds;
     }
 
-    private static PersonInfo[]? GetContributors(JsonNode? result)
+    private static string BuildAlbumOverview(JsonNode? result)
     {
-        var people = new List<PersonInfo>();
+        var baseOverview = result?["notes_html"]?.ToString()
+            ?? result?["notes_plaintext"]?.ToString()
+            ?? result?["notes"]?.ToString()
+            ?? string.Empty;
 
-        AddContributors(people, result?["artists"]?.AsArray(), "Artist");
-        AddContributors(people, result?["extraartists"]?.AsArray(), null);
+        var contributors = result?["extraartists"]?.AsArray()
+            ?.Select(entry =>
+            {
+                var name = NormalizeArtistName(entry?["name"]?.ToString());
+                var role = entry?["role"]?.ToString();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    return null;
+                }
 
-        return people.Count > 0 ? people.ToArray() : null;
-    }
+                return string.IsNullOrWhiteSpace(role)
+                    ? name
+                    : $"{name} ({role})";
+            })
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-    private static void AddContributors(List<PersonInfo> people, JsonArray? entries, string? defaultRole)
-    {
-        if (entries is null)
+        if (contributors is not { Length: > 0 })
         {
-            return;
+            return baseOverview;
         }
 
-        foreach (var entry in entries)
+        var contributorSection = $"Contributors: {string.Join(", ", contributors)}";
+        if (string.IsNullOrWhiteSpace(baseOverview))
         {
-            var name = NormalizeArtistName(entry?["name"]?.ToString());
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
-
-            var role = entry?["role"]?.ToString();
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                role = defaultRole;
-            }
-
-            if (people.Any(person => string.Equals(person.Name, name, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(person.Role ?? string.Empty, role ?? string.Empty, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            people.Add(new PersonInfo
-            {
-                Name = name,
-                Role = role
-            });
+            return contributorSection;
         }
+
+        return $"{baseOverview.Trim()}\n\n{contributorSection}";
     }
 
     private static List<(string Url, ImageType Type)>? GetRemoteImages(JsonNode? result)
