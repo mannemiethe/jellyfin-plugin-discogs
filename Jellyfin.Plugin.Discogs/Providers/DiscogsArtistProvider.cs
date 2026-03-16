@@ -157,6 +157,11 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
 
+    /// <summary>
+    /// Registers an artist name hint mapped to a Discogs artist id for later fallback resolution.
+    /// </summary>
+    /// <param name="artistName">Artist display name or variant.</param>
+    /// <param name="artistId">Discogs artist id.</param>
     public static void RegisterArtistHint(string? artistName, string? artistId)
     {
         if (string.IsNullOrWhiteSpace(artistName) || string.IsNullOrWhiteSpace(artistId))
