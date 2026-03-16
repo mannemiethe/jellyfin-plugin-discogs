@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Discogs.Providers;
 
@@ -19,14 +20,17 @@ namespace Jellyfin.Plugin.Discogs.Providers;
 public class DiscogsImageProvider : IRemoteImageProvider
 {
     private readonly DiscogsApi _api;
+    private readonly ILogger<DiscogsImageProvider> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DiscogsImageProvider"/> class.
     /// </summary>
     /// <param name="api">The Discogs API.</param>
-    public DiscogsImageProvider(DiscogsApi api)
+    /// <param name="logger">The logger.</param>
+    public DiscogsImageProvider(DiscogsApi api, ILogger<DiscogsImageProvider> logger)
     {
         _api = api;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -66,11 +70,26 @@ public class DiscogsImageProvider : IRemoteImageProvider
             images.AddRange(ParseImages(result));
         }
 
-        return images
+        var resultImages = images
             .Where(i => !string.IsNullOrWhiteSpace(i.Url))
             .GroupBy(i => i.Url, StringComparer.Ordinal)
             .Select(g => g.First())
             .ToList();
+
+        foreach (var image in resultImages)
+        {
+            _logger.LogInformation(
+                "Discogs image candidate for item '{ItemName}' ({ItemType}) - ArtistId={ArtistId}, ReleaseId={ReleaseId}, MasterId={MasterId}, ImageType={ImageType}, Url={ImageUrl}",
+                item.Name,
+                item.GetType().Name,
+                artistId,
+                releaseId,
+                masterId,
+                image.Type,
+                image.Url);
+        }
+
+        return resultImages;
     }
 
     /// <inheritdoc />
