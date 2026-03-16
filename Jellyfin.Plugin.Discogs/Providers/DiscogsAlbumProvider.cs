@@ -110,6 +110,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 resolvedReleaseId,
                 resolvedAlbumName);
 
+            var canonicalArtists = await ResolveCanonicalArtistNames(result, cancellationToken).ConfigureAwait(false);
+
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
@@ -117,8 +119,8 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                     ProviderIds = new Dictionary<string, string> { { DiscogsReleaseExternalId.ProviderKey, resolvedReleaseId } },
                     Name = resolvedAlbumName,
                     Overview = result["notes_html"]?.ToString() ?? result["notes_plaintext"]?.ToString() ?? result["notes"]?.ToString(),
-                    Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
-                    AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
+                    Artists = canonicalArtists.ToList(),
+                    AlbumArtists = canonicalArtists.ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
                     ProductionYear = TryGetProductionYear(result),
                     CommunityRating = TryGetCommunityRating(result),
@@ -152,14 +154,16 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
                 resolvedMasterId,
                 resolvedAlbumName);
 
+            var canonicalArtists = await ResolveCanonicalArtistNames(result, cancellationToken).ConfigureAwait(false);
+
             return new MetadataResult<MusicAlbum>
             {
                 Item = new MusicAlbum
                 {
                     ProviderIds = new Dictionary<string, string> { { DiscogsMasterExternalId.ProviderKey, resolvedMasterId } },
                     Name = resolvedAlbumName,
-                    Artists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
-                    AlbumArtists = result["artists"]?.AsArray().Select(artist => NormalizeArtistName(artist!["name"]?.ToString())).ToList(),
+                    Artists = canonicalArtists.ToList(),
+                    AlbumArtists = canonicalArtists.ToList(),
                     Genres = result["genres"]?.AsArray().Select(genre => genre!.ToString()).ToArray(),
                     ProductionYear = TryGetProductionYear(result),
                     CommunityRating = TryGetCommunityRating(result),
@@ -185,6 +189,54 @@ public class DiscogsAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInf
 
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken) => _api.GetImage(url, cancellationToken);
+
+    private async Task<string[]> ResolveCanonicalArtistNames(JsonNode? result, CancellationToken cancellationToken)
+    {
+        var artists = result?["artists"]?.AsArray();
+        if (artists is null || artists.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var names = new List<string>();
+        foreach (var artist in artists)
+        {
+            var fallbackName = NormalizeArtistName(artist?["name"]?.ToString());
+            var artistId = artist?["id"]?.ToString();
+            var resolvedName = fallbackName;
+
+            if (!string.IsNullOrWhiteSpace(artistId))
+            {
+                try
+                {
+                    var artistResult = await _api.GetArtist(artistId, cancellationToken).ConfigureAwait(false);
+                    var canonicalName = NormalizeArtistName(artistResult?["name"]?.ToString());
+                    if (!string.IsNullOrWhiteSpace(canonicalName))
+                    {
+                        resolvedName = canonicalName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve canonical Discogs artist name for ArtistId={ArtistId}", artistId);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(resolvedName))
+            {
+                continue;
+            }
+
+            if (names.Any(name => string.Equals(name, resolvedName, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            names.Add(resolvedName);
+        }
+
+        return names.ToArray();
+    }
 
     private static string NormalizeArtistName(string? name)
     {
