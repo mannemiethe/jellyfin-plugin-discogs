@@ -42,13 +42,13 @@ jobs:
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            TAG="v0.0.${GITHUB_RUN_NUMBER}"
+            TAG="v2.0.0.${GITHUB_RUN_NUMBER}"
           else
             INPUT_TAG="${{ inputs.tag }}"
             if [[ -n "$INPUT_TAG" ]]; then
               TAG="$INPUT_TAG"
             else
-              TAG="v0.0.${GITHUB_RUN_NUMBER}"
+              TAG="v2.0.0.${GITHUB_RUN_NUMBER}"
             fi
           fi
 
