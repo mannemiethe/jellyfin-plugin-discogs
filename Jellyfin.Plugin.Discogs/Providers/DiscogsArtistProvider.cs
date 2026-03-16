@@ -206,14 +206,8 @@ public class DiscogsArtistProvider : IRemoteMetadataProvider<MusicArtist, Artist
             }
         }
 
-        var fallbackId = searchResults.FirstOrDefault()?["id"]?.ToString();
-        if (string.IsNullOrWhiteSpace(fallbackId))
-        {
-            return null;
-        }
-
-        _logger.LogInformation("Discogs artist fallback first result - RequestedName={RequestedName}, ResolvedArtistId={ResolvedArtistId}", requestedName, fallbackId);
-        return await _api.GetArtist(fallbackId, cancellationToken).ConfigureAwait(false);
+        _logger.LogWarning("Discogs artist fallback found no safe match - RequestedName={RequestedName}", requestedName);
+        return null;
     }
 
     private static string BuildArtistOverview(JsonNode? result)
